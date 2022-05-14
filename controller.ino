@@ -1,11 +1,18 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
+#include <ShiftRegister74HC595.h>
+#include <ArduinoJson.h>
 
 WiFiManager wifiManager;
 ESP8266WebServer server(80);
 
-int relayPin = D1; //GPIO5
+// numberOfShiftRegisters
+// serialDataPin
+// clockPin
+// latchPin
+ShiftRegister74HC595<1> sr(5, 4, 14);
+
 int relayState = LOW;
 
 int sensorPin = A0;
@@ -13,8 +20,6 @@ int sensorValue;
 
 void setup() {
   Serial.begin(115200);
-
-  pinMode(relayPin, OUTPUT);
 
   wifiManager.autoConnect("IrrigationSetup", "password");
 
@@ -33,22 +38,35 @@ void loop () {
 }
 
 void handleToggleRelay() {
-  relayState = !relayState;
-  digitalWrite(relayPin, relayState);
+  if(server.hasArg("plain")) { // body will be json
+    String json = server.arg("plain");
+    DynamicJsonDocument req(1024);
+    DynamicJsonDocument res(1024);
+    String response;
 
-  String msg = "Relay state: ";
-  if(relayState == 1) {
-    msg = msg + "open";
+    deserializeJson(req, json);
+
+    if (req["relayNumber"] == 0 ||
+        req["relayNumber"] &&
+        req["relayNumber"] < 8 &&
+        req["relayNumber"] >= 0) { // check if body is valid
+      int relayNumber = req["relayNumber"];
+      int currentState = sr.get(relayNumber); // check current state of relay
+      int newState = !currentState; // set new state to opposite of current state
+
+      res["relayNumber"] = relayNumber;
+      res["currentState"] = newState;
+      serializeJson(res, response);
+
+      sr.set(relayNumber, newState);
+      server.send(200, "application/json", response); // send back json with new state
+      return;
+    } else {
+      server.send(400, "text/plain", "Invalid Request");
+    }
   } else {
-    msg = msg + "closed";
+    server.send(400, "text/plain", "Invalid Request");
   }
-  Serial.println(msg);
-
-  String json = "{ \"relay status\": \"";
-  json = json + String(relayState);
-  json = json + "\" }";
-
-  server.send(200, "text/json", json);
 }
 
 void handleReadSensor() {
@@ -62,5 +80,5 @@ void handleReadSensor() {
   json = json + String(sensorValue);
   json = json + "\" }";
 
-  server.send(200, "text/json", json);
+  server.send(200, "application/json", json);
 }
