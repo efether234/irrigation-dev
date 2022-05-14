@@ -4,21 +4,26 @@
 #include <ShiftRegister74HC595.h>
 #include <ArduinoJson.h>
 
+/* Mux control pins */
+int s0 = 0;  // D3
+int s1 = 2;  // D4
+int s2 = 12; // D6
+int s3 = 13; // D7
+
+/* Sensor read pin */
+int sensorPin = A0;
+
 WiFiManager wifiManager;
 ESP8266WebServer server(80);
-
-// numberOfShiftRegisters
-// serialDataPin
-// clockPin
-// latchPin
-ShiftRegister74HC595<1> sr(5, 4, 14);
-
-int relayState = LOW;
-
-int sensorPin = A0;
-int sensorValue;
+ShiftRegister74HC595<1> sr(5, 4, 14); // D1, D2, D5
 
 void setup() {
+  /* Setup mux pins */
+  pinMode(s0, OUTPUT);
+  pinMode(s1, OUTPUT);
+  pinMode(s2, OUTPUT);
+  pinMode(s3, OUTPUT);
+
   Serial.begin(115200);
 
   wifiManager.autoConnect("IrrigationSetup", "password");
@@ -37,6 +42,11 @@ void loop () {
   server.handleClient();
 }
 
+void setupMux() {
+  
+}
+
+/* This route handler toggles the relays on and off. */
 void handleToggleRelay() {
   if(server.hasArg("plain")) { // body will be json
     String json = server.arg("plain");
@@ -69,16 +79,51 @@ void handleToggleRelay() {
   }
 }
 
+/* This route handler sends sensor data back to the client */
 void handleReadSensor() {
-  sensorValue = analogRead(sensorPin);
+  if(server.arg("sensor") == "" ||
+     server.arg("sensor").toInt() < 0 ||
+     server.arg("sensor").toInt() > 15) { // invalid parameter
+    server.send(400, "text/plain", "Invalid request");
+    return;
+  }
+  String channel = server.arg("sensor");
+  int sensorValue = readMux(channel.toInt());
+  server.send(200, "text/plain", String(sensorValue));
+}
 
-  String msg = "Sensor value: ";
-  msg = msg + String(sensorValue);
-  Serial.println(msg);
+int readMux(int channel) {
+  /* Add control pins to an array so we can loop through them */
+  int controlPin[] = {s0, s1, s2, s3};
 
-  String json = "{ \"sensor reading\": \"";
-  json = json + String(sensorValue);
-  json = json + "\" }";
+  /* Array of decimal to binary values to look up mux channels */
+  int muxChannel[16][4]={
+    {0,0,0,0}, //channel 0
+    {1,0,0,0}, //channel 1
+    {0,1,0,0}, //channel 2
+    {1,1,0,0}, //channel 3
+    {0,0,1,0}, //channel 4
+    {1,0,1,0}, //channel 5
+    {0,1,1,0}, //channel 6
+    {1,1,1,0}, //channel 7
+    {0,0,0,1}, //channel 8
+    {1,0,0,1}, //channel 9
+    {0,1,0,1}, //channel 10
+    {1,1,0,1}, //channel 11
+    {0,0,1,1}, //channel 12
+    {1,0,1,1}, //channel 13
+    {0,1,1,1}, //channel 14
+    {1,1,1,1}  //channel 15
+  };
 
-  server.send(200, "application/json", json);
+  /* Loop through the four s-pins */
+  for(int i = 0; i < 4; i++) {
+    digitalWrite(controlPin[i], muxChannel[channel][i]);
+  }
+
+  /* Read the value at the signal pin*/
+  int val = analogRead(sensorPin);
+
+  /* Return the value */
+  return val;
 }
