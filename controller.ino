@@ -15,7 +15,8 @@ int sensorPin = A0;
 
 WiFiManager wifiManager;
 ESP8266WebServer server(80);
-ShiftRegister74HC595<1> sr(5, 4, 14); // D1, D2, D5
+//ShiftRegister74HC595<1> sr(4, 5, 14); // D2, D1, D5
+ShiftRegister74HC595<1> sr(15, 5, 4); // D8, D1, D2
 
 void setup() {
   /* Setup mux pins */
